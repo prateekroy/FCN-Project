@@ -1,0 +1,67 @@
+SHELL=@CXXSHELL@
+
+AR=ar
+ARFLAGS=rv
+RANLIB=echo
+CXX=@CXX@
+CXXFLAGS=@CXXFLAGS@ @BOOST_CPPFLAGS@ @OPENSSL_INCLUDES@ -Iinclude
+LDFLAGS=@LDFLAGS@ @BOOST_LDFLAGS@ @BOOST_SYSTEM_LIB@ @BOOST_REGEX_LIB@ @BOOST_ASIO_LIB@ @BOOST_UNIT_TEST_FRAMEWORK_LIB@ @OPENSSL_LDFLAGS@ @OPENSSL_LIBS@ -lpthread
+
+ifeq ($(VERBOSE),1)
+  VC=
+  NVC=@@TRUE@ ||
+else
+  VC=@
+  NVC=@
+endif
+
+SRC_CPP=$(filter-out src/cli.cpp, $(wildcard src/*.cpp))
+SRC_TEST_SSL=$(shell ls test/ssl-*.cpp)
+SRC_TEST_NOSSL=$(shell ls test/*.cpp | grep -v ssl)
+
+OBJS=$(SRC_CPP:.cpp=.o)
+OBJS_TEST_SSL=$(SRC_TEST_SSL:.cpp=.o)
+OBJS_TEST_NOSSL=$(SRC_TEST_NOSSL:.cpp=.o)
+
+all: libscalaris.a scalaris tests ssl-tests
+
+cpp-test : tests
+	$(VC)./tests --report_level=detailed
+
+tests: $(OBJS_TEST_NOSSL) $(OBJS)
+	$(NVC)echo -e "\e[0;33mCreating tests\033[39m"
+	$(VC)$(CXX) -o $@ $(OBJS_TEST_NOSSL) libscalaris.a $(LDFLAGS)
+
+ssl-tests: $(OBJS_TEST_SSL) $(OBJS)
+	$(NVC)echo -e "\e[0;33mCreating ssl-tests\033[39m"
+	$(VC)$(CXX) -o $@ $(OBJS_TEST_SSL) libscalaris.a $(LDFLAGS)
+
+libscalaris.a: $(OBJS)
+	$(NVC)echo -e "\e[0;33mCreating archive" $@ "\033[39m"
+	$(VC)$(AR) $(ARFLAGS) $@ $(OBJS)
+
+.cpp.o: Makefile
+	$(NVC)echo -e "\e[0;32mCompiling" $< "\033[39m"
+	$(VC)$(CXX) -MD $(CXXFLAGS)  -c $< -o $@
+
+scalaris: libscalaris.a src/cli.o
+	$(NVC)echo -e "\e[0;31mCreating scalaris\033[39m"
+	$(VC)$(CXX) -o $@ src/cli.o libscalaris.a $(LDFLAGS)$  @BOOST_PROGRAM_OPTIONS_LIB@
+
+clean:
+	@-rm -rf $(shell find . -type f -name '*.o')
+	@-rm -rf $(shell find . -type f -name '*.d')
+	@-rm -f ./tests ./ssl-tests ./scalaris
+
+-include $(OBJS:.o=.d)
+-include $(OBJS_TEST_NOSSL:.o=.d)
+-include $(OBJS_TEST_SSL:.o=.d)
+-include src/cli.d
+
+.PHONY: all cpp-test clean beautify tidy
+
+beautify:
+	$(VC)@CLANGFORMAT@ -style=file -i src/*.[hc]pp test/*.[hc]pp
+
+tidy:
+	$(VC)@CLANGTIDY@ src/cli.cpp $(filter-out src/jsoncpp.cpp, $(SRC_CPP)) $(TEST_SRC_CPP) -- $(CXXFLAGS)
